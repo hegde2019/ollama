@@ -23,6 +23,37 @@ import (
 	"github.com/ollama/ollama/format"
 	"github.com/ollama/ollama/manifest"
 	"github.com/ollama/ollama/types/model"
+)
+
+var blobUploadManager sync.Map
+
+type blobUpload struct {
+	manifest.Layer
+
+	Total     int64
+	Completed atomic.Int64
+
+	Parts []blobUploadPart
+
+	nextURL chan *url.URL
+
+	context.CancelFunc
+
+	file *os.File
+
+	done       bool
+	err        error
+	references atomic.Int32
+}
+
+const (
+	numUploadParts          = 16
+	minUploadPartSize int64 = 100 * format.MegaByte
+	maxUploadPartSize int64 = 1000 * format.MegaByte
+)
+
+func (b *blobUpload) Prepare(ctx context.Context, requestURL *url.URL, opts *registryOptions) error {
+	p, err := manifest.BlobsPath(b.Digest)
 	if err != nil {
 		return err
 	}
