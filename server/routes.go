@@ -38,7 +38,6 @@ import (
 	"github.com/ollama/ollama/format"
 	"github.com/ollama/ollama/fs/ggml"
 	"github.com/ollama/ollama/llm"
-	"github.com/ollama/ollama/manifest"
 	"github.com/ollama/ollama/logutil"
 	"github.com/ollama/ollama/manifest"
 	"github.com/ollama/ollama/middleware"
