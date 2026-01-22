@@ -388,6 +388,7 @@ struct ggml_cuda_pool_leg : public ggml_cuda_pool {
     static const int MAX_BUFFERS = 256;
 
     int device;
+    bool m_alloc;
     struct ggml_cuda_buffer {
         void * ptr = nullptr;
         size_t size = 0;
@@ -396,9 +397,12 @@ struct ggml_cuda_pool_leg : public ggml_cuda_pool {
     ggml_cuda_buffer buffer_pool[MAX_BUFFERS] = {};
     size_t pool_size = 0;
 
-    explicit ggml_cuda_pool_leg(int device) :
-        device(device) {
+    explicit ggml_cuda_pool_leg(int device, bool alloc = true) :
+        device(device), m_alloc(alloc) {
     }
+
+    bool alloc_memory() override { return m_alloc; }
+    size_t alloc_size() override { return pool_size; }
 
     ~ggml_cuda_pool_leg() {
         ggml_cuda_set_device(device);
@@ -486,6 +490,7 @@ struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
     static const size_t CUDA_POOL_VMM_MAX_SIZE = 1ull << 35; // 32 GB
 
     int device;
+    bool m_alloc;
     CUdeviceptr pool_addr = 0;
     size_t pool_used = 0;
     size_t pool_size = 0;
@@ -494,10 +499,13 @@ struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
     std::vector<std::pair<CUdeviceptr, size_t>> mappings;
 #endif
 
-    explicit ggml_cuda_pool_vmm(int device) :
-        device(device),
+    explicit ggml_cuda_pool_vmm(int device, bool alloc = true) :
+        device(device), m_alloc(alloc),
         granularity(ggml_cuda_info().devices[device].vmm_granularity) {
     }
+
+    bool alloc_memory() override { return m_alloc; }
+    size_t alloc_size() override { return pool_used; }
 
     ~ggml_cuda_pool_vmm() {
         if (pool_addr != 0) {
@@ -592,13 +600,14 @@ struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
 #endif // defined(GGML_USE_VMM)
 
 std::unique_ptr<ggml_cuda_pool> ggml_backend_cuda_context::new_pool_for_device(int                  device,
-                                                                               [[maybe_unused]] int stream_no) {
+                                                                               [[maybe_unused]] int stream_no,
+                                                                               bool                 alloc) {
 #if defined(GGML_USE_VMM)
     if (ggml_cuda_info().devices[device].vmm) {
-        return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_vmm(device));
+        return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_vmm(device, alloc));
     }
 #endif // defined(GGML_USE_VMM)
-    return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_leg(device));
+    return std::unique_ptr<ggml_cuda_pool>(new ggml_cuda_pool_leg(device, alloc));
 }
 
 // destroying a cuBLAS handle while a graph is being captured in a different thread can result in a CUDA error
