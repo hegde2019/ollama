@@ -95,26 +95,29 @@ func TestListIntegrations(t *testing.T) {
 	})
 }
 
-func TestGetExistingConfigPaths(t *testing.T) {
+func TestConfigPaths(t *testing.T) {
 	tmpDir := t.TempDir()
 	setTestHome(t, tmpDir)
 
 	t.Run("returns empty for claude (no config files)", func(t *testing.T) {
-		paths := getExistingConfigPaths("claude")
+		integ, _ := integration("claude")
+		paths := integ.configPaths()
 		if len(paths) != 0 {
 			t.Errorf("expected no paths for claude, got %v", paths)
 		}
 	})
 
 	t.Run("returns empty for codex (no config files)", func(t *testing.T) {
-		paths := getExistingConfigPaths("codex")
+		integ, _ := integration("codex")
+		paths := integ.configPaths()
 		if len(paths) != 0 {
 			t.Errorf("expected no paths for codex, got %v", paths)
 		}
 	})
 
 	t.Run("returns empty for droid when no config exists", func(t *testing.T) {
-		paths := getExistingConfigPaths("droid")
+		integ, _ := integration("droid")
+		paths := integ.configPaths()
 		if len(paths) != 0 {
 			t.Errorf("expected no paths, got %v", paths)
 		}
@@ -126,7 +129,8 @@ func TestGetExistingConfigPaths(t *testing.T) {
 		os.MkdirAll(settingsDir, 0o755)
 		os.WriteFile(settingsDir+"/settings.json", []byte(`{}`), 0o644)
 
-		paths := getExistingConfigPaths("droid")
+		integ, _ := integration("droid")
+		paths := integ.configPaths()
 		if len(paths) != 1 {
 			t.Errorf("expected 1 path, got %d", len(paths))
 		}
@@ -141,15 +145,18 @@ func TestGetExistingConfigPaths(t *testing.T) {
 		os.WriteFile(configDir+"/opencode.json", []byte(`{}`), 0o644)
 		os.WriteFile(stateDir+"/model.json", []byte(`{}`), 0o644)
 
-		paths := getExistingConfigPaths("opencode")
+		integ, _ := integration("opencode")
+		paths := integ.configPaths()
 		if len(paths) != 2 {
 			t.Errorf("expected 2 paths, got %d: %v", len(paths), paths)
 		}
 	})
 
 	t.Run("case insensitive app name", func(t *testing.T) {
-		paths1 := getExistingConfigPaths("DROID")
-		paths2 := getExistingConfigPaths("droid")
+		integ1, _ := integration("DROID")
+		integ2, _ := integration("droid")
+		paths1 := integ1.configPaths()
+		paths2 := integ2.configPaths()
 		if len(paths1) != len(paths2) {
 			t.Error("app name should be case insensitive")
 		}

@@ -17,5 +17,5 @@ var claudeIntegration = &integrationDef{
 		}
 		return []string{"--model", model}
 	},
-	CheckInstall: checkCommand("claude", "Install from: https://code.claude.com/docs/en/quickstart"),
+	CheckInstall: checkCommand("claude", "install from https://code.claude.com/docs/en/quickstart"),
 }

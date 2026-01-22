@@ -26,12 +26,12 @@ func TestGetIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			integration, found := getIntegration(tt.input)
+			integration, found := integration(tt.input)
 			if found != tt.wantFound {
-				t.Errorf("getIntegration(%q) found = %v, want %v", tt.input, found, tt.wantFound)
+				t.Errorf("integration(%q) found = %v, want %v", tt.input, found, tt.wantFound)
 			}
 			if found && integration.Name != tt.wantName {
-				t.Errorf("getIntegration(%q).Name = %q, want %q", tt.input, integration.Name, tt.wantName)
+				t.Errorf("integration(%q).Name = %q, want %q", tt.input, integration.Name, tt.wantName)
 			}
 		})
 	}
@@ -221,9 +221,9 @@ func TestGetIntegration_UnknownName_ErrorMessage(t *testing.T) {
 
 	for _, name := range unknownNames {
 		t.Run(name, func(t *testing.T) {
-			integration, found := getIntegration(name)
+			integration, found := integration(name)
 			if found {
-				t.Errorf("getIntegration(%q) should return false, got integration: %v", name, integration.Name)
+				t.Errorf("integration(%q) should return false, got integration: %v", name, integration.Name)
 			}
 		})
 	}
@@ -307,8 +307,8 @@ func TestIntegrationDef_AllHaveRequiredFields(t *testing.T) {
 	}
 }
 
-// TestGetIntegrationConfiguredModels_MergesCorrectly verifies model merging behavior.
-func TestGetIntegrationConfiguredModels_MergesCorrectly(t *testing.T) {
+// TestIntegrationConfiguredModels_MergesCorrectly verifies model merging behavior.
+func TestIntegrationConfiguredModels_MergesCorrectly(t *testing.T) {
 	tmpDir := t.TempDir()
 	setTestHome(t, tmpDir)
 
@@ -316,8 +316,8 @@ func TestGetIntegrationConfiguredModels_MergesCorrectly(t *testing.T) {
 		// Save integration config
 		saveIntegration("testapp", []string{"model-a", "model-b"})
 
-		// For unknown integration (no special handling), should return saved models
-		models := getIntegrationConfiguredModels("testapp")
+		// For unknown integration (nil integrationDef), should return saved models
+		models := integrationConfiguredModels(nil, "testapp")
 
 		// Since testapp isn't opencode or droid, it should return saved models
 		if len(models) != 2 {
@@ -345,10 +345,13 @@ func TestHandleCancelled_WrappedError(t *testing.T) {
 	}
 }
 
-// TestGetExistingConfigPaths_UnknownIntegration verifies unknown integration returns nil.
-func TestGetExistingConfigPaths_UnknownIntegration(t *testing.T) {
-	paths := getExistingConfigPaths("unknown")
-	if len(paths) > 0 {
-		t.Errorf("expected nil/empty for unknown integration, got %v", paths)
+// TestConfigPaths_UnknownIntegration verifies unknown integration returns nil.
+func TestConfigPaths_UnknownIntegration(t *testing.T) {
+	integ, ok := integration("unknown")
+	if ok {
+		t.Error("expected unknown integration to not be found")
+	}
+	if integ != nil {
+		t.Errorf("expected nil integration, got %v", integ)
 	}
 }

@@ -21,20 +21,38 @@ type envVar struct {
 }
 
 type integrationDef struct {
-	Name         string
-	DisplayName  string
-	Command      string
-	EnvVars      func(model string) []envVar
-	Args         func(model string) []string
-	Setup        func(models []string) error
-	CheckInstall func() error
+	Name             string
+	DisplayName      string
+	Command          string
+	EnvVars          func(model string) []envVar
+	Args             func(model string) []string
+	Setup            func(models []string) error
+	CheckInstall     func() error
+	ConfigPaths      func() []string // paths that will be modified
+	ConfiguredModels func() []string // models already configured
+}
+
+// configPaths returns the config file paths for this integration, or nil if none.
+func (d *integrationDef) configPaths() []string {
+	if d.ConfigPaths == nil {
+		return nil
+	}
+	return d.ConfigPaths()
+}
+
+// configuredModels returns the models already configured for this integration, or nil if none.
+func (d *integrationDef) configuredModels() []string {
+	if d.ConfiguredModels == nil {
+		return nil
+	}
+	return d.ConfiguredModels()
 }
 
 // checkCommand returns an error if the command is not installed
 func checkCommand(cmd, installInstructions string) func() error {
 	return func() error {
 		if _, err := exec.LookPath(cmd); err != nil {
-			return fmt.Errorf("%s is not installed. %s", cmd, installInstructions)
+			return fmt.Errorf("%s is not installed, %s", cmd, installInstructions)
 		}
 		return nil
 	}
@@ -47,19 +65,16 @@ var integrationRegistry = map[string]*integrationDef{
 	"opencode": openCodeIntegration,
 }
 
-func getIntegration(name string) (*integrationDef, bool) {
-	integration, ok := integrationRegistry[strings.ToLower(name)]
-	return integration, ok
+func integration(name string) (*integrationDef, bool) {
+	i, ok := integrationRegistry[strings.ToLower(name)]
+	return i, ok
 }
 
-func getIntegrationConfiguredModels(integrationName string) []string {
+func integrationConfiguredModels(integ *integrationDef, integrationName string) []string {
 	// Get models that exist in the integration's config
 	var integrationModels []string
-	switch strings.ToLower(integrationName) {
-	case "opencode":
-		integrationModels = getOpenCodeConfiguredModels()
-	case "droid":
-		integrationModels = getDroidConfiguredModels()
+	if integ != nil {
+		integrationModels = integ.configuredModels()
 	}
 
 	// Get our saved integration config for the correct order (default first)
@@ -100,18 +115,6 @@ func sortedIntegrationNames() []string {
 	return names
 }
 
-// getExistingConfigPaths returns config paths that exist on disk for the given integration.
-// Returns empty slice if the integration doesn't modify config files or no config exists yet.
-func getExistingConfigPaths(integrationName string) []string {
-	switch strings.ToLower(integrationName) {
-	case "droid":
-		return getDroidExistingConfigPaths()
-	case "opencode":
-		return getOpenCodeExistingConfigPaths()
-	}
-	return nil
-}
-
 func selectIntegration() (string, error) {
 	if len(integrationRegistry) == 0 {
 		return "", fmt.Errorf("no integrations available")
@@ -142,7 +145,7 @@ func selectModels(ctx context.Context, integrationName, currentModel string) ([]
 	}
 
 	if len(models.Models) == 0 {
-		return nil, fmt.Errorf("no models available. Run 'ollama pull <model>' first")
+		return nil, fmt.Errorf("no models available, run 'ollama pull <model>' first")
 	}
 
 	var items []selectItem
@@ -155,10 +158,11 @@ func selectModels(ctx context.Context, integrationName, currentModel string) ([]
 	}
 
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no local models available. Run 'ollama pull <model>' first")
+		return nil, fmt.Errorf("no local models available, run 'ollama pull <model>' first")
 	}
 
-	preChecked := getIntegrationConfiguredModels(integrationName)
+	integ, _ := integration(integrationName)
+	preChecked := integrationConfiguredModels(integ, integrationName)
 	preCheckedSet := make(map[string]bool)
 	for _, name := range preChecked {
 		preCheckedSet[name] = true
@@ -214,17 +218,16 @@ func selectModels(ctx context.Context, integrationName, currentModel string) ([]
 		return strings.Compare(strings.ToLower(aName), strings.ToLower(bName))
 	})
 
-	integration, _ := getIntegration(integrationName)
-	supportsMultiModel := integration != nil && integration.Setup != nil
+	supportsMultiModel := integ != nil && integ.Setup != nil
 
 	var selected []string
 	if supportsMultiModel {
-		selected, err = multiSelectPrompt(fmt.Sprintf("Select models for %s:", integration.DisplayName), items, preChecked)
+		selected, err = multiSelectPrompt(fmt.Sprintf("Select models for %s:", integ.DisplayName), items, preChecked)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		model, err := selectPrompt(fmt.Sprintf("Select model for %s:", integration.DisplayName), items)
+		model, err := selectPrompt(fmt.Sprintf("Select model for %s:", integ.DisplayName), items)
 		if err != nil {
 			return nil, err
 		}
@@ -305,35 +308,35 @@ func printModelsAdded(integration *integrationDef, models []string) {
 }
 
 func runIntegration(integrationName, modelName string) error {
-	integration, ok := getIntegration(integrationName)
+	integ, ok := integration(integrationName)
 	if !ok {
 		return fmt.Errorf("unknown integration: %s", integrationName)
 	}
 
-	if err := integration.CheckInstall(); err != nil {
+	if err := integ.CheckInstall(); err != nil {
 		return err
 	}
 
-	if integration.Setup != nil {
+	if integ.Setup != nil {
 		models := []string{modelName}
 		if config, err := loadIntegration(integrationName); err == nil && len(config.Models) > 0 {
 			models = config.Models
 		}
-		if err := integration.Setup(models); err != nil {
+		if err := integ.Setup(models); err != nil {
 			return fmt.Errorf("setup failed: %w", err)
 		}
 	}
 
-	proc := exec.Command(integration.Command, integration.Args(modelName)...)
+	proc := exec.Command(integ.Command, integ.Args(modelName)...)
 	proc.Stdin = os.Stdin
 	proc.Stdout = os.Stdout
 	proc.Stderr = os.Stderr
 	proc.Env = os.Environ()
-	for _, env := range integration.EnvVars(modelName) {
+	for _, env := range integ.EnvVars(modelName) {
 		proc.Env = append(proc.Env, fmt.Sprintf("%s=%s", env.Name, env.Value))
 	}
 
-	fmt.Fprintf(os.Stderr, "\nLaunching %s with %s...\n", integration.DisplayName, modelName)
+	fmt.Fprintf(os.Stderr, "\nLaunching %s with %s...\n", integ.DisplayName, modelName)
 	return proc.Run()
 }
 
@@ -373,14 +376,16 @@ Examples:
 			} else {
 				var err error
 				integrationName, err = selectIntegration()
-				if cancelled, err := handleCancelled(err); cancelled {
+				cancelled, err := handleCancelled(err)
+				if cancelled {
 					return nil
-				} else if err != nil {
+				}
+				if err != nil {
 					return err
 				}
 			}
 
-			integration, ok := getIntegration(integrationName)
+			integ, ok := integration(integrationName)
 			if !ok {
 				return fmt.Errorf("unknown integration: %s", integrationName)
 			}
@@ -406,21 +411,23 @@ Examples:
 			} else {
 				var err error
 				models, err = selectModels(cmd.Context(), integrationName, "")
-				if cancelled, err := handleCancelled(err); cancelled {
+				cancelled, err := handleCancelled(err)
+				if cancelled {
 					return nil
-				} else if err != nil {
+				}
+				if err != nil {
 					return err
 				}
 			}
 
-			if integration.Setup != nil {
-				paths := getExistingConfigPaths(integrationName)
+			if integ.Setup != nil {
+				paths := integ.configPaths()
 				if len(paths) > 0 {
-					fmt.Fprintf(os.Stderr, "This will modify your %s configuration:\n", integration.DisplayName)
+					fmt.Fprintf(os.Stderr, "This will modify your %s configuration:\n", integ.DisplayName)
 					for _, p := range paths {
 						fmt.Fprintf(os.Stderr, "  %s\n", p)
 					}
-					fmt.Fprintf(os.Stderr, "Backups will be saved to %s/\n\n", getBackupDir())
+					fmt.Fprintf(os.Stderr, "Backups will be saved to %s/\n\n", backupDir())
 
 					if ok, _ := confirmPrompt("Proceed?"); !ok {
 						return nil
@@ -432,19 +439,19 @@ Examples:
 				return fmt.Errorf("failed to save: %w", err)
 			}
 
-			if integration.Setup != nil {
-				if err := integration.Setup(models); err != nil {
+			if integ.Setup != nil {
+				if err := integ.Setup(models); err != nil {
 					return fmt.Errorf("setup failed: %w", err)
 				}
 			}
 
-			printModelsAdded(integration, models)
+			printModelsAdded(integ, models)
 
 			if launchFlag {
 				return runIntegration(integrationName, models[0])
 			}
 
-			if launch, _ := confirmPrompt(fmt.Sprintf("\nLaunch %s now?", integration.DisplayName)); launch {
+			if launch, _ := confirmPrompt(fmt.Sprintf("\nLaunch %s now?", integ.DisplayName)); launch {
 				return runIntegration(integrationName, models[0])
 			}
 
